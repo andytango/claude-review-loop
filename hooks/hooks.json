@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if the session involved creating or modifying 3+ files. If so, respond {\"ok\": false, \"reason\": \"Tip: Run /review-swarm:review to audit these changes.\"}. If stop_hook_active is true in the input, respond {\"ok\": true}. Otherwise respond {\"ok\": true}."
+          }
+        ]
+      }
+    ]
+  }
+}
