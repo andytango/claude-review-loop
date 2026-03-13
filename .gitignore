@@ -1,5 +1,3 @@
-dist/
-node_modules/
-.review-swarm/
-coverage/
-*.tsbuildinfo
+.review-*.md
+.review-*.json
+.review-state.json

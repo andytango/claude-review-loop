@@ -1,5 +1,11 @@
 {
-  "name": "review-swarm",
+  "name": "claude-review-loop",
   "version": "0.1.0",
-  "description": "Automated code review and swarm remediation for large changesets."
+  "description": "Automated code review and swarm remediation for large changesets. Spawns adversarial reviewer agents, presents findings interactively, then dispatches fixer agents to remediate approved issues.",
+  "author": {
+    "name": "andytango"
+  },
+  "repository": "https://github.com/andytango/claude-review-loop",
+  "license": "MIT",
+  "keywords": ["code-review", "review", "remediation", "swarm", "agents"]
 }
