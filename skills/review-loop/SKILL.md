@@ -265,16 +265,17 @@ If multiple findings touch the same file, create a single task containing all fi
 
 ## Phase 7 — Loop
 
-After fixes are applied, automatically loop back for a fresh review to verify the fixes and catch any regressions.
+After fixes are applied, ALWAYS loop back for a fresh review. The human must see the results and give zero approved actions before the loop can exit. Do NOT ask whether to continue — just do it.
 
-**Step 7.1** — Inform the user: **"Fixes applied. Starting a fresh review cycle to verify fixes and catch regressions."**
+**Step 7.1** — Inform the user: **"Fixes applied. Running a fresh review to verify fixes and catch regressions."**
 
-**Step 7.2** — Return to **Phase 3** with a new timestamp. This is automatic — do not ask the user for permission.
+**Step 7.2** — Return to **Phase 3** with a new timestamp. This is mandatory, not optional.
 
-**Step 7.3** — The loop continues (Phase 3 → 4 → 5 → 6 → 7 → 3 → ...) until one of these exit conditions is met:
-- **Phase 3 finds no issues**: The code is clean. Proceed to **Phase 8**.
-- **Phase 4 results in all deferred/dismissed**: The user has decided remaining issues are acceptable. Proceed to **Phase 8**.
-- **The user explicitly says to stop**: Proceed to **Phase 8**.
+The loop (Phase 3 → 4 → 5 → 6 → 7 → 3 → ...) can ONLY exit via one of these two conditions:
+- **Phase 3 finds zero issues**: The code is clean. Proceed to **Phase 8**.
+- **Phase 4 results in zero approved actions**: The human triaged every finding as defer or dismiss (i.e., approved nothing). Proceed to **Phase 8**.
+
+There is no other way to exit. Do not offer to skip the re-review. Do not stop after a fixed number of cycles. The human must always see the post-fix review and make a triage decision.
 
 ---
 
@@ -298,4 +299,3 @@ After fixes are applied, automatically loop back for a fresh review to verify th
 - **State file missing/corrupt**: Re-create with empty defaults.
 - **Teammate idle**: This is normal — teammates go idle after each turn. Send a message to wake them if needed.
 - **Team cleanup**: Always shut down teammates and call TeamDelete before proceeding to the next phase.
-- **Max cycles**: If 5 cycles complete without reaching a clean state, warn the user and ask whether to continue or stop.
