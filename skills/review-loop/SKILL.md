@@ -7,6 +7,8 @@ description: Automated code review and swarm remediation — reviews changes, pr
 
 You are the orchestrator for the review-loop workflow. Follow these phases step-by-step, in order. Do not skip phases unless explicitly instructed.
 
+**THIS IS A LOOP, NOT A LINEAR SEQUENCE.** After every remediation (Phase 6), you MUST loop back to Phase 3 for a fresh review. You are NOT done when fixes are applied. The workflow only terminates when Phase 3 finds zero issues OR the human approves zero fixes in Phase 4. Re-read this paragraph after completing Phase 6.
+
 IMPORTANT RULES:
 - Do NOT use shell command substitution `$(...)` or backtick substitution in bash commands. Read output, note the value, pass it as a literal string in subsequent commands.
 - Only use the Bash tool for git commands and `date`. For everything else, use the dedicated tools: Read, Write, Edit, Glob.
@@ -85,7 +87,7 @@ Count findings by action. Determine: approved, deferred, dismissed, unannotated 
 
 - If approved > 0: skip to **Phase 5**.
 - If all unannotated: proceed to **Phase 4**.
-- If all deferred/dismissed: inform user no remediation needed, proceed to **Phase 8**.
+- If all deferred/dismissed: inform user no remediation needed, proceed to **Phase 7**.
 - Otherwise: proceed to **Phase 3**.
 
 ---
@@ -136,7 +138,7 @@ The 4 specialists:
 
 **Step 3.6** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. For the **Suggestions** field, list each alternative fix as a numbered item. If a finding has only one suggestion, list just that one. Leave all action checkboxes unchecked.
 
-**Step 3.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and proceed to **Phase 8**.
+**Step 3.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and proceed to **Phase 7**.
 
 ---
 
@@ -218,7 +220,7 @@ Write back with the Write tool.
 
 **Step 4.6** — Present a decision summary table, then:
 - If any approved: proceed to **Phase 5**.
-- If all deferred or dismissed: proceed to **Phase 8**.
+- If all deferred or dismissed: proceed to **Phase 7**.
 
 ---
 
@@ -228,7 +230,7 @@ Build a remediation plan and get user approval via plan mode. The plan MUST spec
 
 **Step 5.1** — Read the annotated report with the Read tool. Parse findings as in Step 2.2.
 
-**Step 5.2** — Collect findings where action is `approve`. If none, skip to **Phase 8**.
+**Step 5.2** — Collect findings where action is `approve`. If none, skip to **Phase 7**.
 
 **Step 5.3** — Group findings into parallel streams by file path:
 - Different files → separate parallel streams
@@ -285,40 +287,26 @@ If multiple findings touch the same file, create a single task containing all fi
 
 **Step 6.7** — Update `.review-state.json`: update latest cycle's `fixedCount` and the `totalFixed`, `totalDeferred`, `totalDismissed` counters. Read then Write.
 
----
-
-## Phase 7 — Loop
-
-After fixes are applied, ALWAYS loop back for a fresh review. The human must see the results and give zero approved actions before the loop can exit. Do NOT ask whether to continue — just do it.
-
-**Step 7.1** — Inform the user: **"Fixes applied. Running a fresh review to verify fixes and catch regressions."**
-
-**Step 7.2** — Return to **Phase 3** with a new timestamp. This is mandatory, not optional.
-
-The loop (Phase 3 → 4 → 5 → 6 → 7 → 3 → ...) can ONLY exit via one of these two conditions:
-- **Phase 3 finds zero issues**: The code is clean. Proceed to **Phase 8**.
-- **Phase 4 results in zero approved actions**: The human triaged every finding as defer or dismiss (i.e., approved nothing). Proceed to **Phase 8**.
-
-There is no other way to exit. Do not offer to skip the re-review. Do not stop after a fixed number of cycles. The human must always see the post-fix review and make a triage decision.
+**Step 6.8 — MANDATORY LOOP-BACK.** You are NOT done. The fixes must be verified. Inform the user: **"Fixes applied. Running a fresh review to verify fixes and catch regressions."** Then return to **Phase 3** immediately with a new timestamp. Do NOT proceed to Phase 7 (Completion). Do NOT ask the user whether to continue. Do NOT summarize or present a final message. Go directly back to Phase 3 Step 3.1 right now.
 
 ---
 
-## Phase 8 — Completion
+## Phase 7 — Completion
 
-**Step 8.1** — Read `.review-state.json`. Compute totals from the state data.
+**Step 7.1** — Read `.review-state.json`. Compute totals from the state data.
 
-**Step 8.2** — Present final summary: cycles completed, total findings, fixed, deferred, dismissed.
+**Step 7.2** — Present final summary: cycles completed, total findings, fixed, deferred, dismissed.
 
-**Step 8.3** — Inform the user the session is complete.
+**Step 7.3** — Inform the user the session is complete.
 
 ---
 
 ## Edge Case Handling
 
 - **No changes detected**: Phase 1 stops early.
-- **No findings**: Tell user code looks clean, proceed to Phase 8.
+- **No findings**: Tell user code looks clean, proceed to Phase 7.
 - **Already annotated report**: Phase 2 skips to Phase 5.
-- **All deferred/dismissed**: Skip remediation, go to Phase 8.
+- **All deferred/dismissed**: Skip remediation, go to Phase 7.
 - **Fixer failure**: Report failure for that finding, continue other streams.
 - **State file missing/corrupt**: Re-create with empty defaults.
 - **Teammate idle**: This is normal — teammates go idle after each turn. Send a message to wake them if needed.
