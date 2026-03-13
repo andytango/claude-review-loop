@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Automated code review and swarm remediation — reviews changes, presents findings for human annotation, then dispatches a fixer team to remediate
+description: Automated code review and swarm remediation — reviews changes, presents findings for human annotation, then dispatches a fixer team to remediate. Loops until clean.
 ---
 
 # Review Loop Orchestrator
@@ -90,9 +90,9 @@ Count findings by action. Determine: approved, modified, deferred, dismissed, un
 
 ---
 
-## Phase 3 — Review Team
+## Phase 3 — Review (Subagents)
 
-Create a review team to audit the changes using specialist agents.
+Spawn specialist subagents to audit the changes. Use the Agent tool to fan out 4 read-only reviewers in parallel and collect their findings.
 
 **Step 3.1** — Generate a timestamp:
 
@@ -102,40 +102,41 @@ date +"%Y%m%d-%H%M%S"
 
 The report path will be `.review-TIMESTAMP.md` (substitute the actual timestamp).
 
-**Step 3.2** — Create the review team using TeamCreate:
+**Step 3.2** — Get the full diff for context:
 
+```bash
+git diff MERGE_BASE_HASH_HERE
 ```
-team_name: "review-TIMESTAMP"
-description: "Code review team for changes between merge base and HEAD"
-```
 
-**Step 3.3** — Create review tasks using TaskCreate. Create one task per specialist:
+Remember this diff output — you will include relevant portions in each specialist's prompt.
 
-1. **Task: "Code quality review"** — Description: "Review changes from git diff MERGE_BASE for bugs, logic errors, null handling, race conditions, security issues, and adherence to project guidelines. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+**Step 3.3** — Spawn 4 specialist subagents using the Agent tool. Spawn ALL 4 in a single response for maximum parallelism. For each, use:
+- `subagent_type`: `"Explore"` (read-only agents — they should not edit files)
+- `description`: short label for the specialist
 
-2. **Task: "Silent failure analysis"** — Description: "Examine changes from git diff MERGE_BASE for silent failures, empty catch blocks, swallowed errors, missing error propagation, and inadequate error handling. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+Each specialist's prompt must include:
+- The merge base hash
+- The list of changed files (from the diff stat)
+- The tool rules: "ONLY use Bash for git commands. Do NOT use cat, ls, test, head, tail via Bash. Do NOT use 2>/dev/null or shell redirections. Use Read to read files, Glob to find files, Grep to search."
+- Instruction to return findings as a structured list with: title, severity (blocking/advisory), file, line, issue, and suggestion
 
-3. **Task: "Test coverage analysis"** — Description: "Analyze test coverage for changes in git diff MERGE_BASE. Identify critical untested paths, missing edge case coverage, and gaps in error handling tests. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+The 4 specialists:
 
-4. **Task: "Type design review"** — Description: "Review new or modified types in git diff MERGE_BASE for invariant strength, encapsulation quality, and design issues. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+1. **"code-quality-review"** — "Review changes from git diff MERGE_BASE for bugs, logic errors, null handling, race conditions, security issues, and adherence to project guidelines. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
 
-**Step 3.4** — Spawn 4 reviewer teammates using the Agent tool. Spawn ALL 4 in a single response. For each, use:
-- `team_name`: "review-TIMESTAMP"
-- `name`: "code-reviewer", "silent-failure-hunter", "test-analyzer", "type-analyzer"
-- `subagent_type`: "Explore" (read-only agents — they should not edit files)
-- `prompt`: Tell each teammate to check TaskList, claim their task, complete the review, mark the task completed, and send their findings back via SendMessage.
+2. **"silent-failure-analysis"** — "Examine changes from git diff MERGE_BASE for silent failures, empty catch blocks, swallowed errors, missing error propagation, and inadequate error handling. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
 
-**Step 3.5** — Wait for all 4 teammates to complete their tasks. Messages from teammates are delivered automatically.
+3. **"test-coverage-analysis"** — "Analyze test coverage for changes in git diff MERGE_BASE. Identify critical untested paths, missing edge case coverage, and gaps in error handling tests. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
 
-**Step 3.6** — Synthesize findings from all teammates. Deduplicate — if multiple specialists found the same issue, merge into one finding. For each unique finding, determine severity (blocking or advisory).
+4. **"type-design-review"** — "Review new or modified types in git diff MERGE_BASE for invariant strength, encapsulation quality, and design issues. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
 
-**Step 3.7** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. Leave all action checkboxes unchecked.
+**Step 3.4** — Collect results from all 4 subagents. Each returns its findings directly.
 
-**Step 3.8** — Shut down the review team:
-- Send `shutdown_request` to each teammate via SendMessage
-- Call TeamDelete to clean up
+**Step 3.5** — Synthesize findings from all subagents. Deduplicate — if multiple specialists found the same issue, merge into one finding. For each unique finding, determine severity (blocking or advisory).
 
-**Step 3.9** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and proceed to **Phase 8**.
+**Step 3.6** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. Leave all action checkboxes unchecked.
+
+**Step 3.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and proceed to **Phase 8**.
 
 ---
 
@@ -193,7 +194,7 @@ Write back with the Write tool.
 
 ## Phase 5 — Plan Remediation
 
-Build a remediation plan and get user approval via plan mode.
+Build a remediation plan and get user approval via plan mode. The plan MUST specify that fixes will be dispatched to an agent team.
 
 **Step 5.1** — Read the annotated report with the Read tool. Parse findings as in Step 2.2.
 
@@ -212,13 +213,15 @@ For each stream:
 
 Summary: total streams, parallel vs sequential count, overview of changes.
 
+State explicitly: **"These fixes will be dispatched to an agent team. Each stream will be assigned to a fixer teammate that runs in parallel."**
+
 The user reviews and approves before proceeding to Phase 6.
 
 ---
 
 ## Phase 6 — Fixer Team
 
-Create a fixer team to remediate the approved findings. Do NOT fix findings yourself — always delegate to the team.
+Create an agent team to remediate the approved findings. Do NOT fix findings yourself — always delegate to the team.
 
 **Step 6.1** — Create the fixer team using TeamCreate:
 
@@ -227,7 +230,7 @@ team_name: "fix-TIMESTAMP"
 description: "Fixer team for remediating approved review findings"
 ```
 
-**Step 6.2** — Create one task per approved/modified finding using TaskCreate. Each task should include:
+**Step 6.2** — Create one task per stream using TaskCreate. Each task should include:
 - The finding title, file, line, issue, and suggestion
 - For "modify" findings: the human's notes on the desired approach
 - Instruction: "Make minimal changes — fix only what the finding describes. Do not refactor surrounding code. Respect the human's notes over the reviewer's suggestion. Use Read/Edit/Write/Grep/Glob only — no Bash except git commands."
@@ -255,13 +258,18 @@ If multiple findings touch the same file, create a single task containing all fi
 
 ---
 
-## Phase 7 — Re-audit
+## Phase 7 — Loop
 
-**Step 7.1** — Inform the user all fixes have been applied.
+After fixes are applied, automatically loop back for a fresh review to verify the fixes and catch any regressions.
 
-**Step 7.2** — Ask if they want another review cycle.
-- **Yes**: return to **Phase 3** with a new timestamp.
-- **No**: proceed to **Phase 8**.
+**Step 7.1** — Inform the user: **"Fixes applied. Starting a fresh review cycle to verify fixes and catch regressions."**
+
+**Step 7.2** — Return to **Phase 3** with a new timestamp. This is automatic — do not ask the user for permission.
+
+**Step 7.3** — The loop continues (Phase 3 → 4 → 5 → 6 → 7 → 3 → ...) until one of these exit conditions is met:
+- **Phase 3 finds no issues**: The code is clean. Proceed to **Phase 8**.
+- **Phase 4 results in all deferred/dismissed**: The user has decided remaining issues are acceptable. Proceed to **Phase 8**.
+- **The user explicitly says to stop**: Proceed to **Phase 8**.
 
 ---
 
@@ -285,3 +293,4 @@ If multiple findings touch the same file, create a single task containing all fi
 - **State file missing/corrupt**: Re-create with empty defaults.
 - **Teammate idle**: This is normal — teammates go idle after each turn. Send a message to wake them if needed.
 - **Team cleanup**: Always shut down teammates and call TeamDelete before proceeding to the next phase.
+- **Max cycles**: If 5 cycles complete without reaching a clean state, warn the user and ask whether to continue or stop.

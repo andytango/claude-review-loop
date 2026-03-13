@@ -4,11 +4,11 @@ Automated code review and swarm remediation plugin for Claude Code. Uses [agent 
 
 ## How it works
 
-1. **Review** — Creates a review team with 4 specialist teammates running in parallel: code quality, silent failure analysis, test coverage, and type design review
+1. **Review** — Spawns 4 specialist subagents in parallel (code quality, silent failures, test coverage, type design) to examine your branch diff with fresh eyes
 2. **Triage** — Presents each finding interactively. For each one, you choose: approve, modify, defer, or dismiss
-3. **Plan** — Enters plan mode to build a remediation plan for approved findings, grouped by file
-4. **Fix** — Creates a fixer team to remediate approved findings in parallel across files
-5. **Re-audit** — Optionally re-runs the review loop to verify fixes and catch regressions
+3. **Plan** — Enters plan mode to build a remediation plan, explicitly dispatching to an agent team
+4. **Fix** — Creates a fixer agent team to remediate approved findings in parallel across files
+5. **Loop** — Automatically re-runs the review to verify fixes and catch regressions. Repeats until clean or you decide to stop
 
 ## Installation
 
@@ -77,7 +77,7 @@ claude-review-loop/
 └── .gitignore
 ```
 
-The orchestrator skill (SKILL.md) manages the entire workflow: creating teams, assigning tasks, spawning teammates, collecting results, and cleaning up. All specialist prompts and fixer instructions are defined inline.
+The orchestrator uses a hybrid approach: **subagents** for read-only review (simple fan-out/fan-in) and **agent teams** for fixes (coordinated parallel writes with task tracking). All specialist and fixer prompts are defined inline in the skill.
 
 ## Output files
 
