@@ -5,6 +5,7 @@
   "author": {
     "name": "andytango"
   },
+  "homepage": "https://andytango.github.io/claude-review-loop-site/",
   "repository": "https://github.com/andytango/claude-review-loop",
   "license": "MIT",
   "keywords": ["code-review", "review", "remediation", "swarm", "agents"]
