@@ -152,21 +152,45 @@ Present each finding to the user interactively using the AskUserQuestion tool. D
 
 Process findings in batches of up to 4. Build the options dynamically based on the finding's suggestions:
 
-- **header**: `"Finding N"`
-- **question**: `"[SEVERITY] TITLE\nFile: PATH:LINE\n\nIssue: ISSUE_SUMMARY"`
+- **header**: `"Finding N of TOTAL"`
+- **question**: Build a rich context block:
+  ```
+  [SEVERITY] TITLE
+  File: PATH:LINE
+
+  Issue: ISSUE_DESCRIPTION (full description, not just a summary)
+
+  Why this matters: BRIEF_EXPLANATION (1 sentence on the impact — e.g., "This could cause a runtime error when the response is empty" or "Callers will silently get stale data")
+  ```
+- **preview**: Use the Read tool to read the relevant lines from the source file BEFORE presenting the question. Include approximately 5-10 lines of surrounding context centred on the issue location. Show the actual code, not a paraphrase.
 - **options**: Build this list dynamically:
   - For each numbered suggestion in the finding, add an option:
-    - label: `"Fix: {short summary of suggestion}"`, description: `"{full suggestion text}"`
+    - label: `"Fix: {short summary of suggestion}"`, description: `"{full suggestion text with enough detail that the user can evaluate it without reading the report}"`
   - Then always append these two:
     - label: `"Defer"`, description: `"Acknowledged but not fixing now"`
     - label: `"Dismiss"`, description: `"Disagree — not an issue"`
 - The AskUserQuestion tool also allows free-text input via "Other". If the user types a custom response, treat it as a custom fix instruction.
 
-Use the `preview` field to show relevant code context.
+Example: if a finding has 2 suggestions, the question and options would look like:
 
-Example: if a finding has 2 suggestions, the options would be:
-1. "Fix: Add null check before access" — "Add `if (foo != null)` guard before the property access on line 42"
-2. "Fix: Use optional chaining" — "Replace `foo.bar` with `foo?.bar` on line 42"
+Question:
+```
+[blocking] Null dereference on API response
+File: src/api/client.ts:42
+
+Issue: The response object is accessed without checking for null. When the
+API returns a 204 No Content, `response.data` will be undefined and the
+subsequent `.map()` call will throw a TypeError.
+
+Why this matters: This will crash the request handler for any endpoint that
+returns an empty response.
+```
+
+Preview: (actual source lines 38-46 of src/api/client.ts)
+
+Options:
+1. "Fix: Add null check before access" — "Add `if (response.data != null)` guard before the `.map()` call on line 42. Return an empty array when data is null."
+2. "Fix: Use optional chaining with fallback" — "Replace `response.data.map(...)` with `(response.data ?? []).map(...)` on line 42."
 3. "Defer" — "Acknowledged but not fixing now"
 4. "Dismiss" — "Disagree — not an issue"
 
