@@ -5,9 +5,11 @@ description: Automated code review and swarm remediation — reviews changes, pr
 
 # Review Loop Orchestrator
 
-You are the orchestrator for the review-loop workflow. Follow these phases step-by-step, in order. Do not skip phases unless explicitly instructed.
+You are the orchestrator for a **review-fix loop**. The workflow has three parts:
 
-**THIS IS A LOOP, NOT A LINEAR SEQUENCE.** After every remediation (Phase 6), you MUST loop back to Phase 3 for a fresh review. You are NOT done when fixes are applied. The workflow only terminates when Phase 3 finds zero issues OR the human approves zero fixes in Phase 4. Re-read this paragraph after completing Phase 6.
+1. **Setup** (runs once)
+2. **The Loop** — Review → Triage → Plan → Fix → *repeat* (runs until exit condition met)
+3. **Done** (runs once, after loop exits)
 
 IMPORTANT RULES:
 - Do NOT use shell command substitution `$(...)` or backtick substitution in bash commands. Read output, note the value, pass it as a literal string in subsequent commands.
@@ -17,11 +19,13 @@ IMPORTANT RULES:
 
 ---
 
-## Phase 1 — Detect Changes
+# Part 1: Setup (run once)
+
+## Step A — Detect Changes
 
 Determine the default branch and compute the diff against it.
 
-**Step 1.1** — Detect the default branch:
+**A.1** — Detect the default branch:
 
 ```bash
 git symbolic-ref refs/remotes/origin/HEAD
@@ -35,7 +39,7 @@ git rev-parse --verify origin/main
 
 If that succeeds, the default branch is `main`. Otherwise, the default branch is `master`. Remember this value.
 
-**Step 1.2** — Compute the merge base (substitute the actual default branch name):
+**A.2** — Compute the merge base (substitute the actual default branch name):
 
 ```bash
 git merge-base HEAD origin/main
@@ -43,7 +47,7 @@ git merge-base HEAD origin/main
 
 Remember the output commit hash as the "merge base".
 
-**Step 1.3** — Get the diff summary (substitute the actual merge base hash):
+**A.3** — Get the diff summary (substitute the actual merge base hash):
 
 ```bash
 git diff --stat MERGE_BASE_HASH_HERE
@@ -51,7 +55,7 @@ git diff --stat MERGE_BASE_HASH_HERE
 
 If the output is empty, inform the user: **"No changes to review. Nothing to do."** — then **STOP**.
 
-**Step 1.4** — Initialize or load the state file. Use the Read tool to read `.review-state.json`. If it does not exist (Read returns an error), use the Write tool to create it with:
+**A.4** — Initialize or load the state file. Use the Read tool to read `.review-state.json`. If it does not exist (Read returns an error), use the Write tool to create it with:
 
 ```json
 {
@@ -64,15 +68,13 @@ If the output is empty, inform the user: **"No changes to review. Nothing to do.
 
 If it already exists, remember the current state.
 
----
+## Step B — Check for Existing Annotated Review
 
-## Phase 2 — Check for Existing Annotated Review
+Before entering the loop, check whether a previous review report exists and has been annotated.
 
-Before spawning a new reviewer, check whether a previous review report exists and has been annotated.
+**B.1** — Use the Glob tool with pattern `.review-*.md` to find existing review reports. If none found, proceed to **The Loop**.
 
-**Step 2.1** — Use the Glob tool with pattern `.review-*.md` to find existing review reports. If none found, proceed to **Phase 3**.
-
-**Step 2.2** — Read the most recent report (by filename timestamp) using the Read tool. Parse the Markdown content to extract findings. Each finding is a `### Finding N: {title}` section containing:
+**B.2** — Read the most recent report (by filename timestamp) using the Read tool. Parse the Markdown content to extract findings. Each finding is a `### Finding N: {title}` section containing:
 
 - **Severity**: `**Severity:** blocking` or `**Severity:** advisory`
 - **File**: `**File:** path/to/file:line`
@@ -83,20 +85,28 @@ Before spawning a new reviewer, check whether a previous review report exists an
 
 Count findings by action. Determine: approved, deferred, dismissed, unannotated counts.
 
-**Step 2.3** — Evaluate:
+**B.3** — Evaluate:
 
-- If approved > 0: skip to **Phase 5**.
-- If all unannotated: proceed to **Phase 4**.
-- If all deferred/dismissed: inform user no remediation needed, proceed to **Phase 7**.
-- Otherwise: proceed to **Phase 3**.
+- If approved > 0: skip to **Loop Step 3 (Plan)**.
+- If all unannotated: skip to **Loop Step 2 (Triage)**.
+- If all deferred/dismissed: inform user no remediation needed, proceed to **Done**.
+- Otherwise: proceed to **The Loop**.
 
 ---
 
-## Phase 3 — Review (Subagents)
+# Part 2: The Loop
+
+**Repeat the 4 steps below. After Step 4, go back to Step 1. The loop ONLY exits when:**
+- **Step 1 (Review) finds zero issues** — the code is clean → go to **Done**
+- **Step 2 (Triage) results in zero approved fixes** — the human deferred/dismissed everything → go to **Done**
+
+**There is no other exit. Do not stop after fixing. Do not ask whether to continue. Do not skip the re-review.**
+
+## Loop Step 1 — Review
 
 Spawn specialist subagents to audit the changes. Use the Agent tool to fan out 4 read-only reviewers in parallel and collect their findings.
 
-**Step 3.1** — Generate a timestamp:
+**1.1** — Generate a timestamp:
 
 ```bash
 date +"%Y%m%d-%H%M%S"
@@ -104,7 +114,7 @@ date +"%Y%m%d-%H%M%S"
 
 The report path will be `.review-TIMESTAMP.md` (substitute the actual timestamp).
 
-**Step 3.2** — Get the full diff for context:
+**1.2** — Get the full diff for context:
 
 ```bash
 git diff MERGE_BASE_HASH_HERE
@@ -112,7 +122,7 @@ git diff MERGE_BASE_HASH_HERE
 
 Remember this diff output — you will include relevant portions in each specialist's prompt.
 
-**Step 3.3** — Spawn 4 specialist subagents using the Agent tool. Spawn ALL 4 in a single response for maximum parallelism. For each, use:
+**1.3** — Spawn 4 specialist subagents using the Agent tool. Spawn ALL 4 in a single response for maximum parallelism. For each, use:
 - `subagent_type`: `"Explore"` (read-only agents — they should not edit files)
 - `description`: short label for the specialist
 
@@ -132,25 +142,23 @@ The 4 specialists:
 
 4. **"type-design-review"** — "Review new or modified types in git diff MERGE_BASE for invariant strength, encapsulation quality, and design issues. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
 
-**Step 3.4** — Collect results from all 4 subagents. Each returns its findings directly.
+**1.4** — Collect results from all 4 subagents. Each returns its findings directly.
 
-**Step 3.5** — Synthesize findings from all subagents. Deduplicate — if multiple specialists found the same issue, merge into one finding (combine their suggestions into a numbered list of alternatives). For each unique finding, determine severity (blocking or advisory). Preserve all distinct suggested fixes — do not collapse alternatives into one.
+**1.5** — Synthesize findings from all subagents. Deduplicate — if multiple specialists found the same issue, merge into one finding (combine their suggestions into a numbered list of alternatives). For each unique finding, determine severity (blocking or advisory). Preserve all distinct suggested fixes — do not collapse alternatives into one.
 
-**Step 3.6** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. For the **Suggestions** field, list each alternative fix as a numbered item. If a finding has only one suggestion, list just that one. Leave all action checkboxes unchecked.
+**1.6** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. For the **Suggestions** field, list each alternative fix as a numbered item. If a finding has only one suggestion, list just that one. Leave all action checkboxes unchecked.
 
-**Step 3.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and proceed to **Phase 7**.
+**1.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and go to **Done**.
 
----
-
-## Phase 4 — Interactive Finding Review
+## Loop Step 2 — Triage
 
 Present each finding to the user interactively using the AskUserQuestion tool. Do NOT ask the user to edit a Markdown file.
 
-**Step 4.1** — Read the generated report using the Read tool. Parse findings as described in Step 2.2.
+**2.1** — Read the generated report using the Read tool. Parse findings as described in Step B.2.
 
-**Step 4.2** — Display overview: total findings, blocking count, advisory count. Then say: "Let's walk through each finding. I'll ask for your decision on each one."
+**2.2** — Display overview: total findings, blocking count, advisory count. Then say: "Let's walk through each finding. I'll ask for your decision on each one."
 
-**Step 4.3** — For each finding, collect the user's decision using the AskUserQuestion tool.
+**2.3** — For each finding, collect the user's decision using the AskUserQuestion tool.
 
 Process findings in batches of up to 4. Build the options dynamically based on the finding's suggestions:
 
@@ -196,13 +204,13 @@ Options:
 3. "Defer" — "Acknowledged but not fixing now"
 4. "Dismiss" — "Disagree — not an issue"
 
-**Step 4.4** — Update the review Markdown file using the Edit tool based on the user's choice:
+**2.4** — Update the review Markdown file using the Edit tool based on the user's choice:
 - If user chose a fix suggestion: `- [ ] Approve (suggestion N)` → `- [x] Approve (suggestion N)` where N is the suggestion number they chose. Add the chosen suggestion text under `**Human notes**:` for clarity.
 - If user typed a custom response (Other): `- [ ] Approve (suggestion 1)` → `- [x] Approve (suggestion 1)` and write the user's custom instruction under `**Human notes**:`
 - "Defer": `- [ ] Defer` → `- [x] Defer`
 - "Dismiss": `- [ ] Dismiss` → `- [x] Dismiss`
 
-**Step 4.5** — Update `.review-state.json`. Read it with the Read tool, add a new cycle to the `cycles` array:
+**2.5** — Update `.review-state.json`. Read it with the Read tool, add a new cycle to the `cycles` array:
 
 ```json
 {
@@ -218,25 +226,23 @@ Options:
 
 Write back with the Write tool.
 
-**Step 4.6** — Present a decision summary table, then:
-- If any approved: proceed to **Phase 5**.
-- If all deferred or dismissed: proceed to **Phase 7**.
+**2.6** — Present a decision summary table, then:
+- If any approved: proceed to **Loop Step 3 (Plan)**.
+- If all deferred or dismissed: go to **Done**.
 
----
-
-## Phase 5 — Plan Remediation
+## Loop Step 3 — Plan
 
 Build a remediation plan and get user approval via plan mode. The plan MUST specify that fixes will be dispatched to an agent team.
 
-**Step 5.1** — Read the annotated report with the Read tool. Parse findings as in Step 2.2.
+**3.1** — Read the annotated report with the Read tool. Parse findings as in Step B.2.
 
-**Step 5.2** — Collect findings where action is `approve`. If none, skip to **Phase 7**.
+**3.2** — Collect findings where action is `approve`. If none, go to **Done**.
 
-**Step 5.3** — Group findings into parallel streams by file path:
+**3.3** — Group findings into parallel streams by file path:
 - Different files → separate parallel streams
 - Same file → same stream (sequential)
 
-**Step 5.4** — Enter plan mode using the EnterPlanMode tool. Present the remediation plan:
+**3.4** — Enter plan mode using the EnterPlanMode tool. Present the remediation plan:
 
 For each stream:
 - Stream ID, files touched
@@ -247,67 +253,71 @@ Summary: total streams, parallel vs sequential count, overview of changes.
 
 State explicitly: **"These fixes will be dispatched to an agent team. Each stream will be assigned to a fixer teammate that runs in parallel."**
 
-The user reviews and approves before proceeding to Phase 6.
+The user reviews and approves before proceeding to Loop Step 4.
 
----
-
-## Phase 6 — Fixer Team
+## Loop Step 4 — Fix
 
 Create an agent team to remediate the approved findings. Do NOT fix findings yourself — always delegate to the team.
 
-**Step 6.1** — Create the fixer team using TeamCreate:
+**After this step completes, you MUST go back to Loop Step 1 (Review). You are not done. The fixes need to be verified by a fresh review.**
+
+**4.1** — Create the fixer team using TeamCreate:
 
 ```
 team_name: "fix-TIMESTAMP"
 description: "Fixer team for remediating approved review findings"
 ```
 
-**Step 6.2** — Create one task per stream using TaskCreate. Each task should include:
+**4.2** — Create one task per stream using TaskCreate. Each task should include:
 - The finding title, file, line, issue, and the specific suggestion the user chose (by number or custom instruction from human notes)
 - Instruction: "Make minimal changes — fix only what the finding describes. Do not refactor surrounding code. Respect the human's notes over the reviewer's suggestion. Use Read/Edit/Write/Grep/Glob only — no Bash except git commands."
 
 If multiple findings touch the same file, create a single task containing all findings for that file and note they must be applied sequentially.
 
-**Step 6.3** — Spawn fixer teammates using the Agent tool. Spawn ALL teammates in a single response for maximum parallelism. For each stream (group of findings on independent files), spawn one teammate:
+**4.3** — Spawn fixer teammates using the Agent tool. Spawn ALL teammates in a single response for maximum parallelism. For each stream (group of findings on independent files), spawn one teammate:
 - `team_name`: "fix-TIMESTAMP"
 - `name`: "fixer-1", "fixer-2", etc.
 - `subagent_type`: "general-purpose" (these agents need to edit files)
 - `prompt`: Tell each teammate to check TaskList, claim their task, implement the fix, mark the task completed, and send a summary of changes via SendMessage. Include the tool rules: "ONLY use Bash for git commands. Do NOT use cat, ls, test, head, tail via Bash. Do NOT use 2>/dev/null or shell redirections. Use Read to read files, Glob to find files, Grep to search."
 
-**Step 6.4** — Wait for all fixer teammates to complete. Messages are delivered automatically.
+**4.4** — Wait for all fixer teammates to complete. Messages are delivered automatically.
 
-**Step 6.5** — Collect results from teammate messages. Report to the user:
+**4.5** — Collect results from teammate messages. Report to the user:
 - Which findings were successfully fixed
 - Which findings encountered issues
 - Which files were modified
 
-**Step 6.6** — Shut down the fixer team:
+**4.6** — Shut down the fixer team:
 - Send `shutdown_request` to each teammate via SendMessage
 - Call TeamDelete to clean up
 
-**Step 6.7** — Update `.review-state.json`: update latest cycle's `fixedCount` and the `totalFixed`, `totalDeferred`, `totalDismissed` counters. Read then Write.
+**4.7** — Update `.review-state.json`: update latest cycle's `fixedCount` and the `totalFixed`, `totalDeferred`, `totalDismissed` counters. Read then Write.
 
-**Step 6.8 — MANDATORY LOOP-BACK.** You are NOT done. The fixes must be verified. Inform the user: **"Fixes applied. Running a fresh review to verify fixes and catch regressions."** Then return to **Phase 3** immediately with a new timestamp. Do NOT proceed to Phase 7 (Completion). Do NOT ask the user whether to continue. Do NOT summarize or present a final message. Go directly back to Phase 3 Step 3.1 right now.
+**4.8** — Inform the user: **"Fixes applied. Running a fresh review to verify fixes and catch regressions."**
+
+**Now go back to Loop Step 1.** Generate a new timestamp and start a fresh review. Do not proceed to Done. Do not ask the user. Do not summarize. Start Loop Step 1 now.
 
 ---
 
-## Phase 7 — Completion
+# Part 3: Done
 
-**Step 7.1** — Read `.review-state.json`. Compute totals from the state data.
+**You should only be here if Loop Step 1 found zero issues OR Loop Step 2 resulted in zero approved fixes.**
 
-**Step 7.2** — Present final summary: cycles completed, total findings, fixed, deferred, dismissed.
+**D.1** — Read `.review-state.json`. Compute totals from the state data.
 
-**Step 7.3** — Inform the user the session is complete.
+**D.2** — Present final summary: cycles completed, total findings, fixed, deferred, dismissed.
+
+**D.3** — Inform the user the session is complete.
 
 ---
 
 ## Edge Case Handling
 
-- **No changes detected**: Phase 1 stops early.
-- **No findings**: Tell user code looks clean, proceed to Phase 7.
-- **Already annotated report**: Phase 2 skips to Phase 5.
-- **All deferred/dismissed**: Skip remediation, go to Phase 7.
+- **No changes detected**: Setup Step A stops early.
+- **No findings**: Tell user code looks clean, go to Done.
+- **Already annotated report**: Setup Step B skips into the loop at the appropriate step.
+- **All deferred/dismissed**: Skip remediation, go to Done.
 - **Fixer failure**: Report failure for that finding, continue other streams.
 - **State file missing/corrupt**: Re-create with empty defaults.
 - **Teammate idle**: This is normal — teammates go idle after each turn. Send a message to wake them if needed.
-- **Team cleanup**: Always shut down teammates and call TeamDelete before proceeding to the next phase.
+- **Team cleanup**: Always shut down teammates and call TeamDelete before proceeding.
