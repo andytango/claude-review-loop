@@ -1,14 +1,14 @@
 # claude-review-loop
 
-Automated code review and swarm remediation plugin for Claude Code. Uses [agent teams](https://docs.anthropic.com/en/docs/claude-code) to spawn adversarial reviewer specialists, present findings interactively for your decision, then dispatch fixer agents to remediate approved issues.
+Automated code review and swarm remediation plugin for Claude Code. Spawns adversarial reviewer subagents, presents findings interactively with selectable fix options, then dispatches an [agent team](https://docs.anthropic.com/en/docs/claude-code) to remediate approved issues. Loops until clean.
 
 ## How it works
 
 1. **Review** — Spawns 4 specialist subagents in parallel (code quality, silent failures, test coverage, type design) to examine your branch diff with fresh eyes
-2. **Triage** — Presents each finding interactively. For each one, you choose: approve, modify, defer, or dismiss
+2. **Triage** — Presents each finding interactively with the reviewer's suggested fixes as selectable options. Pick a fix, defer, dismiss, or type your own approach
 3. **Plan** — Enters plan mode to build a remediation plan, explicitly dispatching to an agent team
 4. **Fix** — Creates a fixer agent team to remediate approved findings in parallel across files
-5. **Loop** — Automatically re-runs the review to verify fixes and catch regressions. Repeats until clean or you decide to stop
+5. **Loop** — Automatically re-runs the review to verify fixes and catch regressions. Repeats until the review finds zero issues or you defer/dismiss everything
 
 ## Installation
 
