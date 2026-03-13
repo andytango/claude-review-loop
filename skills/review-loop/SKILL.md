@@ -196,12 +196,16 @@ The user reviews and approves before proceeding to Phase 6.
 
 ## Phase 6 — Dispatch Fixer Agents
 
-**Step 6.1** — For each stream, spawn a `fixer` subagent via the Agent tool with:
-- Findings assigned (title, file, line, issue, suggestion)
-- Human annotations for "modify" actions
-- File paths to modify
+You MUST use the Agent tool to spawn `fixer` subagents. Do NOT fix findings yourself — always delegate to fixer agents.
 
-Use `isolation: "worktree"` for parallelizable streams. Run non-parallelizable streams sequentially.
+**Step 6.1** — Spawn fixer subagents using the Agent tool. You MUST spawn ALL parallelizable fixers simultaneously in a single response — do not spawn them one at a time.
+
+For each stream:
+- Provide: findings assigned (title, file, line, issue, suggestion), human annotations for "modify" actions, file paths to modify
+- Streams touching **different files** MUST use `isolation: "worktree"` and MUST be spawned in parallel (in the same message)
+- Streams touching the **same file** must run sequentially in the main worktree
+
+If there are 4 streams touching different files, spawn all 4 fixer agents in a single response. This is critical for performance — sequential spawning defeats the purpose of the swarm.
 
 **Step 6.2** — Wait for all fixers to complete.
 
