@@ -75,15 +75,15 @@ Before spawning a new reviewer, check whether a previous review report exists an
 - **Severity**: `**Severity:** blocking` or `**Severity:** advisory`
 - **File**: `**File:** path/to/file:line`
 - **Issue**: text after `**Issue:**`
-- **Suggestion**: text after `**Suggestion:**`
-- **Action checkboxes**: `- [x] Approve`, `- [x] Modify`, `- [x] Defer`, `- [x] Dismiss` (checked) vs `- [ ]` (unchecked)
+- **Suggestions**: numbered list after `**Suggestions:**`
+- **Action checkboxes**: `- [x] Approve (suggestion N)`, `- [x] Defer`, `- [x] Dismiss` (checked) vs `- [ ]` (unchecked)
 - **Human notes**: text after `**Human notes:**`
 
-Count findings by action. Determine: approved, modified, deferred, dismissed, unannotated counts.
+Count findings by action. Determine: approved, deferred, dismissed, unannotated counts.
 
 **Step 2.3** — Evaluate:
 
-- If approved > 0 or modified > 0: skip to **Phase 5**.
+- If approved > 0: skip to **Phase 5**.
 - If all unannotated: proceed to **Phase 4**.
 - If all deferred/dismissed: inform user no remediation needed, proceed to **Phase 8**.
 - Otherwise: proceed to **Phase 3**.
@@ -118,23 +118,23 @@ Each specialist's prompt must include:
 - The merge base hash
 - The list of changed files (from the diff stat)
 - The tool rules: "ONLY use Bash for git commands. Do NOT use cat, ls, test, head, tail via Bash. Do NOT use 2>/dev/null or shell redirections. Use Read to read files, Glob to find files, Grep to search."
-- Instruction to return findings as a structured list with: title, severity (blocking/advisory), file, line, issue, and suggestion
+- Instruction to return findings as a structured list with: title, severity (blocking/advisory), file, line, issue, and **one or more suggested fixes** (numbered). When multiple valid approaches exist, list them as alternatives so the user can choose.
 
 The 4 specialists:
 
-1. **"code-quality-review"** — "Review changes from git diff MERGE_BASE for bugs, logic errors, null handling, race conditions, security issues, and adherence to project guidelines. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
+1. **"code-quality-review"** — "Review changes from git diff MERGE_BASE for bugs, logic errors, null handling, race conditions, security issues, and adherence to project guidelines. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
 
-2. **"silent-failure-analysis"** — "Examine changes from git diff MERGE_BASE for silent failures, empty catch blocks, swallowed errors, missing error propagation, and inadequate error handling. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
+2. **"silent-failure-analysis"** — "Examine changes from git diff MERGE_BASE for silent failures, empty catch blocks, swallowed errors, missing error propagation, and inadequate error handling. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
 
-3. **"test-coverage-analysis"** — "Analyze test coverage for changes in git diff MERGE_BASE. Identify critical untested paths, missing edge case coverage, and gaps in error handling tests. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
+3. **"test-coverage-analysis"** — "Analyze test coverage for changes in git diff MERGE_BASE. Identify critical untested paths, missing edge case coverage, and gaps in error handling tests. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
 
-4. **"type-design-review"** — "Review new or modified types in git diff MERGE_BASE for invariant strength, encapsulation quality, and design issues. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and suggested fix."
+4. **"type-design-review"** — "Review new or modified types in git diff MERGE_BASE for invariant strength, encapsulation quality, and design issues. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
 
 **Step 3.4** — Collect results from all 4 subagents. Each returns its findings directly.
 
-**Step 3.5** — Synthesize findings from all subagents. Deduplicate — if multiple specialists found the same issue, merge into one finding. For each unique finding, determine severity (blocking or advisory).
+**Step 3.5** — Synthesize findings from all subagents. Deduplicate — if multiple specialists found the same issue, merge into one finding (combine their suggestions into a numbered list of alternatives). For each unique finding, determine severity (blocking or advisory). Preserve all distinct suggested fixes — do not collapse alternatives into one.
 
-**Step 3.6** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. Leave all action checkboxes unchecked.
+**Step 3.6** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. For the **Suggestions** field, list each alternative fix as a numbered item. If a finding has only one suggestion, list just that one. Leave all action checkboxes unchecked.
 
 **Step 3.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and proceed to **Phase 8**.
 
@@ -150,23 +150,29 @@ Present each finding to the user interactively using the AskUserQuestion tool. D
 
 **Step 4.3** — For each finding, collect the user's decision using the AskUserQuestion tool.
 
-Process findings in batches of up to 4. For each finding:
+Process findings in batches of up to 4. Build the options dynamically based on the finding's suggestions:
 
 - **header**: `"Finding N"`
-- **question**: `"[SEVERITY] TITLE\nFile: PATH:LINE\n\nIssue: ISSUE_SUMMARY\nSuggestion: SUGGESTION_SUMMARY\n\nWhat action should be taken?"`
-- **options**:
-  1. label: `"Approve"`, description: `"Fix as suggested by the reviewer"`
-  2. label: `"Modify"`, description: `"Fix with a different approach (you'll provide notes)"`
-  3. label: `"Defer"`, description: `"Acknowledged but not fixing now"`
-  4. label: `"Dismiss"`, description: `"Disagree — not an issue"`
+- **question**: `"[SEVERITY] TITLE\nFile: PATH:LINE\n\nIssue: ISSUE_SUMMARY"`
+- **options**: Build this list dynamically:
+  - For each numbered suggestion in the finding, add an option:
+    - label: `"Fix: {short summary of suggestion}"`, description: `"{full suggestion text}"`
+  - Then always append these two:
+    - label: `"Defer"`, description: `"Acknowledged but not fixing now"`
+    - label: `"Dismiss"`, description: `"Disagree — not an issue"`
+- The AskUserQuestion tool also allows free-text input via "Other". If the user types a custom response, treat it as a custom fix instruction.
 
-Use the `preview` field to show relevant code context and the reviewer's suggested fix.
+Use the `preview` field to show relevant code context.
 
-If the user selected "Modify", use a follow-up AskUserQuestion to collect modification notes. If the user selects "Other", treat the free-text as modification notes.
+Example: if a finding has 2 suggestions, the options would be:
+1. "Fix: Add null check before access" — "Add `if (foo != null)` guard before the property access on line 42"
+2. "Fix: Use optional chaining" — "Replace `foo.bar` with `foo?.bar` on line 42"
+3. "Defer" — "Acknowledged but not fixing now"
+4. "Dismiss" — "Disagree — not an issue"
 
-**Step 4.4** — Update the review Markdown file using the Edit tool, checking the appropriate action checkbox for each finding:
-- "Approve": `- [ ] Approve` → `- [x] Approve`
-- "Modify": `- [ ] Modify` → `- [x] Modify` and add notes under `**Human notes**:`
+**Step 4.4** — Update the review Markdown file using the Edit tool based on the user's choice:
+- If user chose a fix suggestion: `- [ ] Approve (suggestion N)` → `- [x] Approve (suggestion N)` where N is the suggestion number they chose. Add the chosen suggestion text under `**Human notes**:` for clarity.
+- If user typed a custom response (Other): `- [ ] Approve (suggestion 1)` → `- [x] Approve (suggestion 1)` and write the user's custom instruction under `**Human notes**:`
 - "Defer": `- [ ] Defer` → `- [x] Defer`
 - "Dismiss": `- [ ] Dismiss` → `- [x] Dismiss`
 
@@ -187,7 +193,7 @@ If the user selected "Modify", use a follow-up AskUserQuestion to collect modifi
 Write back with the Write tool.
 
 **Step 4.6** — Present a decision summary table, then:
-- If any approved or modified: proceed to **Phase 5**.
+- If any approved: proceed to **Phase 5**.
 - If all deferred or dismissed: proceed to **Phase 8**.
 
 ---
@@ -198,7 +204,7 @@ Build a remediation plan and get user approval via plan mode. The plan MUST spec
 
 **Step 5.1** — Read the annotated report with the Read tool. Parse findings as in Step 2.2.
 
-**Step 5.2** — Collect findings where action is `approve` or `modify`. If none, skip to **Phase 8**.
+**Step 5.2** — Collect findings where action is `approve`. If none, skip to **Phase 8**.
 
 **Step 5.3** — Group findings into parallel streams by file path:
 - Different files → separate parallel streams
@@ -209,7 +215,7 @@ Build a remediation plan and get user approval via plan mode. The plan MUST spec
 For each stream:
 - Stream ID, files touched
 - Findings to address (title, severity, issue)
-- Human notes for "modify" findings
+- Human notes (custom instructions or chosen suggestion number)
 
 Summary: total streams, parallel vs sequential count, overview of changes.
 
@@ -231,8 +237,7 @@ description: "Fixer team for remediating approved review findings"
 ```
 
 **Step 6.2** — Create one task per stream using TaskCreate. Each task should include:
-- The finding title, file, line, issue, and suggestion
-- For "modify" findings: the human's notes on the desired approach
+- The finding title, file, line, issue, and the specific suggestion the user chose (by number or custom instruction from human notes)
 - Instruction: "Make minimal changes — fix only what the finding describes. Do not refactor surrounding code. Respect the human's notes over the reviewer's suggestion. Use Read/Edit/Write/Grep/Glob only — no Bash except git commands."
 
 If multiple findings touch the same file, create a single task containing all findings for that file and note they must be applied sequentially.

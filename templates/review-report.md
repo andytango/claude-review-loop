@@ -17,17 +17,17 @@
 **Issue**:
 {description of the issue}
 
-**Suggestion**:
-{suggested fix or approach}
+**Suggestions**:
+1. {primary suggested fix}
+2. {alternative fix, if applicable}
 
 **Action** (check one):
-- [ ] Approve — Fix as suggested (or with modifications below)
-- [ ] Modify — Fix with different approach (describe below)
+- [ ] Approve (suggestion N) — Fix using the specified suggestion
 - [ ] Defer — Acknowledged but not fixing now
 - [ ] Dismiss — Disagree, not an issue
 
 **Human notes**:
-{optional notes, especially required for Modify action}
+{optional notes from triage}
 
 ---
 
