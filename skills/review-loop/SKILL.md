@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Automated code review and swarm remediation — reviews changes, presents findings for human annotation, then dispatches fixer agents
+description: Automated code review and swarm remediation — reviews changes, presents findings for human annotation, then dispatches a fixer team to remediate
 ---
 
 # Review Loop Orchestrator
@@ -90,9 +90,9 @@ Count findings by action. Determine: approved, modified, deferred, dismissed, un
 
 ---
 
-## Phase 3 — Spawn Reviewer
+## Phase 3 — Review Team
 
-Generate a fresh code review report.
+Create a review team to audit the changes using specialist agents.
 
 **Step 3.1** — Generate a timestamp:
 
@@ -102,17 +102,40 @@ date +"%Y%m%d-%H%M%S"
 
 The report path will be `.review-TIMESTAMP.md` (substitute the actual timestamp).
 
-**Step 3.2** — Spawn the `reviewer` subagent using the Agent tool.
+**Step 3.2** — Create the review team using TeamCreate:
 
-Provide the following context:
-- The merge base hash from Step 1.2
-- The report template path: `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`
-- The output file path: `.review-TIMESTAMP.md` (actual timestamp)
-- Instruction: Review all changes between the merge base and HEAD, write findings to the output file using the template format
+```
+team_name: "review-TIMESTAMP"
+description: "Code review team for changes between merge base and HEAD"
+```
 
-Wait for the reviewer subagent to complete.
+**Step 3.3** — Create review tasks using TaskCreate. Create one task per specialist:
 
-**Step 3.3** — Verify the report was written by reading it with the Read tool. If not generated, inform the user and **STOP**.
+1. **Task: "Code quality review"** — Description: "Review changes from git diff MERGE_BASE for bugs, logic errors, null handling, race conditions, security issues, and adherence to project guidelines. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+
+2. **Task: "Silent failure analysis"** — Description: "Examine changes from git diff MERGE_BASE for silent failures, empty catch blocks, swallowed errors, missing error propagation, and inadequate error handling. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+
+3. **Task: "Test coverage analysis"** — Description: "Analyze test coverage for changes in git diff MERGE_BASE. Identify critical untested paths, missing edge case coverage, and gaps in error handling tests. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+
+4. **Task: "Type design review"** — Description: "Review new or modified types in git diff MERGE_BASE for invariant strength, encapsulation quality, and design issues. Use Read/Grep/Glob only — no Bash except git commands. Report findings with title, severity, file, line, issue, and suggestion."
+
+**Step 3.4** — Spawn 4 reviewer teammates using the Agent tool. Spawn ALL 4 in a single response. For each, use:
+- `team_name`: "review-TIMESTAMP"
+- `name`: "code-reviewer", "silent-failure-hunter", "test-analyzer", "type-analyzer"
+- `subagent_type`: "Explore" (read-only agents — they should not edit files)
+- `prompt`: Tell each teammate to check TaskList, claim their task, complete the review, mark the task completed, and send their findings back via SendMessage.
+
+**Step 3.5** — Wait for all 4 teammates to complete their tasks. Messages from teammates are delivered automatically.
+
+**Step 3.6** — Synthesize findings from all teammates. Deduplicate — if multiple specialists found the same issue, merge into one finding. For each unique finding, determine severity (blocking or advisory).
+
+**Step 3.7** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. Leave all action checkboxes unchecked.
+
+**Step 3.8** — Shut down the review team:
+- Send `shutdown_request` to each teammate via SendMessage
+- Call TeamDelete to clean up
+
+**Step 3.9** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and proceed to **Phase 8**.
 
 ---
 
@@ -177,7 +200,7 @@ Build a remediation plan and get user approval via plan mode.
 **Step 5.2** — Collect findings where action is `approve` or `modify`. If none, skip to **Phase 8**.
 
 **Step 5.3** — Group findings into parallel streams by file path:
-- Different files → separate parallel streams (`canParallelize: true`)
+- Different files → separate parallel streams
 - Same file → same stream (sequential)
 
 **Step 5.4** — Enter plan mode using the EnterPlanMode tool. Present the remediation plan:
@@ -186,7 +209,6 @@ For each stream:
 - Stream ID, files touched
 - Findings to address (title, severity, issue)
 - Human notes for "modify" findings
-- Whether it runs in a worktree
 
 Summary: total streams, parallel vs sequential count, overview of changes.
 
@@ -194,24 +216,42 @@ The user reviews and approves before proceeding to Phase 6.
 
 ---
 
-## Phase 6 — Dispatch Fixer Agents
+## Phase 6 — Fixer Team
 
-You MUST use the Agent tool to spawn `fixer` subagents. Do NOT fix findings yourself — always delegate to fixer agents.
+Create a fixer team to remediate the approved findings. Do NOT fix findings yourself — always delegate to the team.
 
-**Step 6.1** — Spawn fixer subagents using the Agent tool. You MUST spawn ALL parallelizable fixers simultaneously in a single response — do not spawn them one at a time.
+**Step 6.1** — Create the fixer team using TeamCreate:
 
-For each stream:
-- Provide: findings assigned (title, file, line, issue, suggestion), human annotations for "modify" actions, file paths to modify
-- Streams touching **different files** MUST use `isolation: "worktree"` and MUST be spawned in parallel (in the same message)
-- Streams touching the **same file** must run sequentially in the main worktree
+```
+team_name: "fix-TIMESTAMP"
+description: "Fixer team for remediating approved review findings"
+```
 
-If there are 4 streams touching different files, spawn all 4 fixer agents in a single response. This is critical for performance — sequential spawning defeats the purpose of the swarm.
+**Step 6.2** — Create one task per approved/modified finding using TaskCreate. Each task should include:
+- The finding title, file, line, issue, and suggestion
+- For "modify" findings: the human's notes on the desired approach
+- Instruction: "Make minimal changes — fix only what the finding describes. Do not refactor surrounding code. Respect the human's notes over the reviewer's suggestion. Use Read/Edit/Write/Grep/Glob only — no Bash except git commands."
 
-**Step 6.2** — Wait for all fixers to complete.
+If multiple findings touch the same file, create a single task containing all findings for that file and note they must be applied sequentially.
 
-**Step 6.3** — Report results: which findings were fixed, which had issues, which files changed.
+**Step 6.3** — Spawn fixer teammates using the Agent tool. Spawn ALL teammates in a single response for maximum parallelism. For each stream (group of findings on independent files), spawn one teammate:
+- `team_name`: "fix-TIMESTAMP"
+- `name`: "fixer-1", "fixer-2", etc.
+- `subagent_type`: "general-purpose" (these agents need to edit files)
+- `prompt`: Tell each teammate to check TaskList, claim their task, implement the fix, mark the task completed, and send a summary of changes via SendMessage. Include the tool rules: "ONLY use Bash for git commands. Do NOT use cat, ls, test, head, tail via Bash. Do NOT use 2>/dev/null or shell redirections. Use Read to read files, Glob to find files, Grep to search."
 
-**Step 6.4** — Update `.review-state.json`: update latest cycle's `fixedCount` and the `totalFixed`, `totalDeferred`, `totalDismissed` counters. Read then Write.
+**Step 6.4** — Wait for all fixer teammates to complete. Messages are delivered automatically.
+
+**Step 6.5** — Collect results from teammate messages. Report to the user:
+- Which findings were successfully fixed
+- Which findings encountered issues
+- Which files were modified
+
+**Step 6.6** — Shut down the fixer team:
+- Send `shutdown_request` to each teammate via SendMessage
+- Call TeamDelete to clean up
+
+**Step 6.7** — Update `.review-state.json`: update latest cycle's `fixedCount` and the `totalFixed`, `totalDeferred`, `totalDismissed` counters. Read then Write.
 
 ---
 
@@ -243,3 +283,5 @@ If there are 4 streams touching different files, spawn all 4 fixer agents in a s
 - **All deferred/dismissed**: Skip remediation, go to Phase 8.
 - **Fixer failure**: Report failure for that finding, continue other streams.
 - **State file missing/corrupt**: Re-create with empty defaults.
+- **Teammate idle**: This is normal — teammates go idle after each turn. Send a message to wake them if needed.
+- **Team cleanup**: Always shut down teammates and call TeamDelete before proceeding to the next phase.
