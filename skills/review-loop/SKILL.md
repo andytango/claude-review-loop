@@ -124,25 +124,22 @@ git diff MERGE_BASE_HASH_HERE
 
 Remember this diff output — you will include relevant portions in each specialist's prompt.
 
-**1.3** — Spawn 4 specialist subagents using the Agent tool. Spawn ALL 4 in a single response for maximum parallelism. For each, use:
-- `subagent_type`: `"Explore"` (read-only agents — they should not edit files)
-- `description`: short label for the specialist
+**1.3** — Spawn 4 specialist subagents from the **PR Review Toolkit** plugin using the Agent tool. Spawn ALL 4 in a single response for maximum parallelism. Reference each agent by its plugin-qualified name so it loads the official agent definition (with confidence scoring, structured output, and model overrides).
 
 Each specialist's prompt must include:
-- The merge base hash
+- The merge base hash and instruction to review `git diff MERGE_BASE`
 - The list of changed files (from the diff stat)
-- The tool rules: "ONLY use Bash for git commands. Do NOT use cat, ls, test, head, tail via Bash. Do NOT use 2>/dev/null or shell redirections. Use Read to read files, Glob to find files, Grep to search."
-- Instruction to return findings as a structured list with: title, severity (blocking/advisory), file, line, issue, and **one or more suggested fixes** (numbered). When multiple valid approaches exist, list them as alternatives so the user can choose.
+- Instruction to provide one or more numbered suggested fixes per finding. When multiple valid approaches exist, list them as alternatives so the user can choose.
 
 The 4 specialists:
 
-1. **"code-quality-review"** — "Review changes from git diff MERGE_BASE for bugs, logic errors, null handling, race conditions, security issues, and adherence to project guidelines. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
+1. **`pr-review-toolkit:code-reviewer`** — "Review the changes from git diff MERGE_BASE. For each issue, also provide one or more numbered suggested fixes."
 
-2. **"silent-failure-analysis"** — "Examine changes from git diff MERGE_BASE for silent failures, empty catch blocks, swallowed errors, missing error propagation, and inadequate error handling. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
+2. **`pr-review-toolkit:silent-failure-hunter`** — "Examine the changes from git diff MERGE_BASE. For each issue, also provide one or more numbered suggested fixes."
 
-3. **"test-coverage-analysis"** — "Analyze test coverage for changes in git diff MERGE_BASE. Identify critical untested paths, missing edge case coverage, and gaps in error handling tests. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
+3. **`pr-review-toolkit:pr-test-analyzer`** — "Analyze test coverage for changes in git diff MERGE_BASE. For each gap, also provide one or more numbered suggested fixes."
 
-4. **"type-design-review"** — "Review new or modified types in git diff MERGE_BASE for invariant strength, encapsulation quality, and design issues. For each issue found, report: title, severity (blocking or advisory), file path, line number, issue description, and one or more numbered suggested fixes. If there are multiple reasonable approaches, list each as a separate numbered suggestion."
+4. **`pr-review-toolkit:type-design-analyzer`** — "Review types in the changes from git diff MERGE_BASE. For each concern, also provide one or more numbered suggested fixes."
 
 **1.4** — Collect results from all 4 subagents. Each returns its findings directly.
 

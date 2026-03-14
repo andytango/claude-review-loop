@@ -4,7 +4,7 @@ Automated code review and swarm remediation plugin for Claude Code. Spawns adver
 
 ## How it works
 
-1. **Review** — Spawns 4 specialist subagents in parallel (code quality, silent failures, test coverage, type design) to examine your branch diff with fresh eyes
+1. **Review** — Spawns 4 specialist agents from the [PR Review Toolkit](https://github.com/anthropics/claude-code-plugins) in parallel (code-reviewer, silent-failure-hunter, pr-test-analyzer, type-design-analyzer) to examine your branch diff with fresh eyes
 2. **Triage** — Presents each finding interactively with the reviewer's suggested fixes as selectable options. Pick a fix, defer, dismiss, or type your own approach
 3. **Plan** — Enters plan mode to build a remediation plan, explicitly dispatching to an agent team
 4. **Fix** — Creates a fixer agent team to remediate approved findings in parallel across files
@@ -34,7 +34,13 @@ The plugin will detect your changes, run the review, and guide you through the r
 
 ## Prerequisites
 
-Agent teams must be enabled in your Claude Code settings (`~/.claude/settings.json`):
+1. **PR Review Toolkit** plugin must be installed (provides the specialist review agents):
+
+```bash
+claude /plugin install pr-review-toolkit
+```
+
+2. Agent teams must be enabled in your Claude Code settings (`~/.claude/settings.json`):
 
 ```json
 {
@@ -69,6 +75,9 @@ The plugin needs these tool permissions. Add to your `~/.claude/settings.json` o
 claude-review-loop/
 ├── .claude-plugin/
 │   └── plugin.json          # Plugin manifest
+├── hooks/
+│   ├── hooks.json           # Stop hook registration
+│   └── stop-hook.sh         # Enforces loop after fixes
 ├── skills/
 │   └── review-loop/
 │       └── SKILL.md         # Main orchestrator skill
@@ -77,7 +86,7 @@ claude-review-loop/
 └── .gitignore
 ```
 
-The orchestrator uses a hybrid approach: **subagents** for read-only review (simple fan-out/fan-in) and **agent teams** for fixes (coordinated parallel writes with task tracking). All specialist and fixer prompts are defined inline in the skill.
+The orchestrator uses a hybrid approach: **PR Review Toolkit agents** for review (with confidence scoring and structured output) and **agent teams** for fixes (coordinated parallel writes with task tracking). A stop hook enforces the loop — if the agent tries to exit after fixes, the hook blocks and re-injects the review prompt.
 
 ## Output files
 

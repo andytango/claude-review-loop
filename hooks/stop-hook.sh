@@ -52,17 +52,13 @@ Run: date +"%Y%m%d-%H%M%S"
 ### Step 2 — Get the diff
 Run: git diff MERGE_BASE_PLACEHOLDER
 
-### Step 3 — Spawn 4 specialist subagents
-Spawn ALL 4 in a single response using the Agent tool with subagent_type "Explore":
+### Step 3 — Spawn 4 specialist subagents from the PR Review Toolkit
+Spawn ALL 4 in a single response using the Agent tool. Reference each by its plugin-qualified name:
 
-1. "code-quality-review" — Review changes for bugs, logic errors, null handling, race conditions, security issues
-2. "silent-failure-analysis" — Examine for silent failures, swallowed errors, missing error propagation
-3. "test-coverage-analysis" — Analyze test coverage gaps, untested paths, missing edge cases
-4. "type-design-review" — Review type designs for invariant strength and encapsulation
-
-Each specialist prompt must include the merge base hash, changed files list, and these tool rules: "ONLY use Bash for git commands. Do NOT use cat, ls, test, head, tail via Bash. Do NOT use 2>/dev/null or shell redirections. Use Read to read files, Glob to find files, Grep to search."
-
-Each must return findings as: title, severity (blocking/advisory), file, line, issue, and one or more numbered suggested fixes.
+1. pr-review-toolkit:code-reviewer — "Review changes from git diff MERGE_BASE_PLACEHOLDER. Provide one or more numbered suggested fixes per issue."
+2. pr-review-toolkit:silent-failure-hunter — "Examine changes from git diff MERGE_BASE_PLACEHOLDER. Provide one or more numbered suggested fixes per issue."
+3. pr-review-toolkit:pr-test-analyzer — "Analyze test coverage for git diff MERGE_BASE_PLACEHOLDER. Provide one or more numbered suggested fixes per gap."
+4. pr-review-toolkit:type-design-analyzer — "Review types in git diff MERGE_BASE_PLACEHOLDER. Provide one or more numbered suggested fixes per concern."
 
 ### Step 4 — Synthesize and write report
 Deduplicate findings. Write report to .review-TIMESTAMP.md using the template. Leave all action checkboxes unchecked.
