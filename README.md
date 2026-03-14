@@ -34,10 +34,10 @@ The plugin will detect your changes, run the review, and guide you through the r
 
 ## Prerequisites
 
-1. **PR Review Toolkit** plugin must be installed (provides the specialist review agents):
+1. **[PR Review Toolkit](https://github.com/anthropics/claude-code-plugins)** plugin must be installed — provides the 4 specialist review agents (code-reviewer, silent-failure-hunter, pr-test-analyzer, type-design-analyzer) with confidence scoring and structured output. The plugin will check for this on startup and tell you how to install it if missing.
 
 ```bash
-claude /plugin install pr-review-toolkit
+/plugin install pr-review-toolkit
 ```
 
 2. Agent teams must be enabled in your Claude Code settings (`~/.claude/settings.json`):

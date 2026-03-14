@@ -21,11 +21,39 @@ IMPORTANT RULES:
 
 # Part 1: Setup (run once)
 
-## Step A — Detect Changes
+## Step A — Check Dependencies
+
+**A.0** — Verify the PR Review Toolkit plugin is installed. Use the Glob tool to check for its agent definitions:
+
+```
+~/.claude/plugins/**/pr-review-toolkit/agents/code-reviewer.md
+```
+
+If no files are found, **STOP** immediately and display this message:
+
+---
+
+**Missing dependency: PR Review Toolkit**
+
+The review-loop plugin requires the PR Review Toolkit plugin for its specialist review agents (code-reviewer, silent-failure-hunter, pr-test-analyzer, type-design-analyzer).
+
+Install it with:
+
+```
+/plugin install pr-review-toolkit
+```
+
+Then run `/review-loop` again.
+
+---
+
+Do NOT continue. Do NOT fall back to generic reviews. The PR Review Toolkit agents provide confidence scoring, structured output, and project-aware context that this plugin depends on.
+
+## Step B — Detect Changes
 
 Determine the default branch and compute the diff against it.
 
-**A.1** — Detect the default branch:
+**B.1** — Detect the default branch:
 
 ```bash
 git symbolic-ref refs/remotes/origin/HEAD
@@ -39,7 +67,7 @@ git rev-parse --verify origin/main
 
 If that succeeds, the default branch is `main`. Otherwise, the default branch is `master`. Remember this value.
 
-**A.2** — Compute the merge base (substitute the actual default branch name):
+**B.2** — Compute the merge base (substitute the actual default branch name):
 
 ```bash
 git merge-base HEAD origin/main
@@ -47,7 +75,7 @@ git merge-base HEAD origin/main
 
 Remember the output commit hash as the "merge base".
 
-**A.3** — Get the diff summary (substitute the actual merge base hash):
+**B.3** — Get the diff summary (substitute the actual merge base hash):
 
 ```bash
 git diff --stat MERGE_BASE_HASH_HERE
@@ -55,7 +83,7 @@ git diff --stat MERGE_BASE_HASH_HERE
 
 If the output is empty, inform the user: **"No changes to review. Nothing to do."** — then **STOP**.
 
-**A.4** — Initialize or load the state file. Use the Read tool to read `.review-state.json`. If it does not exist (Read returns an error), use the Write tool to create it with:
+**B.4** — Initialize or load the state file. Use the Read tool to read `.review-state.json`. If it does not exist (Read returns an error), use the Write tool to create it with:
 
 ```json
 {
@@ -70,13 +98,13 @@ If the output is empty, inform the user: **"No changes to review. Nothing to do.
 
 If it already exists, remember the current state.
 
-## Step B — Check for Existing Annotated Review
+## Step C — Check for Existing Annotated Review
 
 Before entering the loop, check whether a previous review report exists and has been annotated.
 
-**B.1** — Use the Glob tool with pattern `.review-*.md` to find existing review reports. If none found, proceed to **The Loop**.
+**C.1** — Use the Glob tool with pattern `.review-*.md` to find existing review reports. If none found, proceed to **The Loop**.
 
-**B.2** — Read the most recent report (by filename timestamp) using the Read tool. Parse the Markdown content to extract findings. Each finding is a `### Finding N: {title}` section containing:
+**C.2** — Read the most recent report (by filename timestamp) using the Read tool. Parse the Markdown content to extract findings. Each finding is a `### Finding N: {title}` section containing:
 
 - **Severity**: `**Severity:** blocking` or `**Severity:** advisory`
 - **File**: `**File:** path/to/file:line`
@@ -87,7 +115,7 @@ Before entering the loop, check whether a previous review report exists and has 
 
 Count findings by action. Determine: approved, deferred, dismissed, unannotated counts.
 
-**B.3** — Evaluate:
+**C.3** — Evaluate:
 
 - If approved > 0: skip to **Loop Step 3 (Plan)**.
 - If all unannotated: skip to **Loop Step 2 (Triage)**.
@@ -153,7 +181,7 @@ The 4 specialists:
 
 Present each finding to the user interactively using the AskUserQuestion tool. Do NOT ask the user to edit a Markdown file.
 
-**2.1** — Read the generated report using the Read tool. Parse findings as described in Step B.2.
+**2.1** — Read the generated report using the Read tool. Parse findings as described in Step C.2.
 
 **2.2** — Display overview: total findings, blocking count, advisory count. Then say: "Let's walk through each finding. I'll ask for your decision on each one."
 
@@ -233,7 +261,7 @@ Write back with the Write tool.
 
 Build a remediation plan and get user approval via plan mode. The plan MUST specify that fixes will be dispatched to an agent team.
 
-**3.1** — Read the annotated report with the Read tool. Parse findings as in Step B.2.
+**3.1** — Read the annotated report with the Read tool. Parse findings as in Step C.2.
 
 **3.2** — Collect findings where action is `approve`. If none, go to **Done**.
 
