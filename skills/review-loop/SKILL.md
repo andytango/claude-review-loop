@@ -59,6 +59,8 @@ If the output is empty, inform the user: **"No changes to review. Nothing to do.
 
 ```json
 {
+  "mergeBase": "MERGE_BASE_HASH_HERE",
+  "needsReview": false,
   "cycles": [],
   "totalFixed": 0,
   "totalDeferred": 0,
@@ -148,7 +150,7 @@ The 4 specialists:
 
 **1.6** — Write the review report to `.review-TIMESTAMP.md` using the template at `${CLAUDE_PLUGIN_ROOT}/templates/review-report.md`. Fill in all findings using the template format. For the **Suggestions** field, list each alternative fix as a numbered item. If a finding has only one suggestion, list just that one. Leave all action checkboxes unchecked.
 
-**1.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean and go to **Done**.
+**1.7** — Verify the report by reading it with the Read tool. If empty or no findings, tell the user the code looks clean. Update `.review-state.json` to set `"needsReview": false`, then go to **Done**.
 
 ## Loop Step 2 — Triage
 
@@ -228,7 +230,7 @@ Write back with the Write tool.
 
 **2.6** — Present a decision summary table, then:
 - If any approved: proceed to **Loop Step 3 (Plan)**.
-- If all deferred or dismissed: go to **Done**.
+- If all deferred or dismissed: update `.review-state.json` to set `"needsReview": false`, then go to **Done**.
 
 ## Loop Step 3 — Plan
 
@@ -291,11 +293,13 @@ If multiple findings touch the same file, create a single task containing all fi
 - Send `shutdown_request` to each teammate via SendMessage
 - Call TeamDelete to clean up
 
-**4.7** — Update `.review-state.json`: update latest cycle's `fixedCount` and the `totalFixed`, `totalDeferred`, `totalDismissed` counters. Read then Write.
+**4.7** — Update `.review-state.json`: update latest cycle's `fixedCount` and the `totalFixed`, `totalDeferred`, `totalDismissed` counters. **Also set `"needsReview": true`** — this signals the stop hook to block exit if you try to stop before verifying. Read then Write.
 
 **4.8** — Inform the user: **"Fixes applied. Running a fresh review to verify fixes and catch regressions."**
 
 **Now go back to Loop Step 1.** Generate a new timestamp and start a fresh review. Do not proceed to Done. Do not ask the user. Do not summarize. Start Loop Step 1 now.
+
+Note: Even if you fail to loop back here, the stop hook will catch you and re-trigger the review. But you should loop back yourself — the hook is a safety net, not the primary mechanism.
 
 ---
 
